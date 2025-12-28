@@ -1,7 +1,7 @@
 /** @typedef {0|1|2|3|4|5|6|7|8|9} Digit */
 /** @typedef {'Easy'|'Medium'|'Hard'|'Extreme'} Difficulty */
 /** @typedef {{ puzzle: Digit[], solution: Digit[], values: Digit[], notesMask: number[], difficulty: Difficulty, elapsedSeconds: number, notesMode: boolean, version: number }} SavedState */
-/** @typedef {{ difficulty?: Difficulty, gameName?: string }} BootOptions */
+/** @typedef {{ difficulty?: Difficulty, gameName?: string, generateNew?: boolean }} BootOptions */
 
 const SudokuApp = (() => {
 	const VERSION = 1
@@ -192,23 +192,27 @@ const SudokuApp = (() => {
 	}
 
 	class SudokuGenerator {
+		static #randomInt(min, max) {
+			return Math.floor(Math.random() * (max - min)) + min
+		}
 		static #difficultyTargets() {
 			return {
-				Easy: 78,
-				Medium: 34,
-				Hard: 28,
-				Extreme: 22,
+				Easy: this.#randomInt(54, 64),
+				Medium: this.#randomInt(41, 53),
+				Hard: this.#randomInt(29, 40),
+				Extreme: this.#randomInt(23, 28),
 			}
 		}
 
 		/** @param {Difficulty} difficulty */
 		static generate(difficulty) {
 			const targets = SudokuGenerator.#difficultyTargets()
-			const givensTarget = targets[difficulty] ?? targets.Medium
+			const givensTarget = targets[difficulty] ?? targets.Easy
 
 			const empty = Array.from({ length: CELL_COUNT }, () => 0)
 			const solution = SudokuSolver.fillRandom(empty)
 			if (!solution) throw new Error('Failed to generate solution')
+
 
 			const puzzle = solution.slice()
 			const indices = shuffleInPlace(Array.from({ length: CELL_COUNT }, (_, i) => i))
@@ -222,6 +226,8 @@ const SudokuApp = (() => {
 				if (count !== 1) puzzle[idx] = prev
 				else givens -= 1
 			}
+
+			console.log(`Generated puzzle with ${givens} givens (target was ${givensTarget}) for difficulty ${difficulty}`)
 
 			return { puzzle, solution, difficulty }
 		}
@@ -374,23 +380,23 @@ const SudokuApp = (() => {
 
 		undoOne() {
 			const action = this.undo.pop()
-			if (!action) return false
-			if (!this.canEdit(action.idx)) return false
+			if (!action) return null
+			if (!this.canEdit(action.idx)) return null
 			if (action.type === 'value') {
 				this.values[action.idx] = action.prevValue
 				this.notesMask[action.idx] = action.prevNotes
-				return true
+				return action.idx
 			}
 			if (action.type === 'note') {
 				this.notesMask[action.idx] = action.prevMask
-				return true
+				return action.idx
 			}
 			if (action.type === 'erase') {
 				this.values[action.idx] = action.prevValue
 				this.notesMask[action.idx] = action.prevNotes
-				return true
+				return action.idx
 			}
-			return false
+			return null
 		}
 	}
 
@@ -462,6 +468,125 @@ const SudokuApp = (() => {
 		}
 	}
 
+	class AppShell {
+		#settingsKey
+		#settings = { selectionHighlight: true }
+		#onSettingsChange
+
+		#backBtn
+		#settingsBtn
+		#settingsDrawerEl
+		#settingsCloseBtn
+		#selectionHighlightToggle
+		#mainContentEl
+		#menuBackdrop
+
+		constructor(settingsKey, onSettingsChange) {
+			this.#settingsKey = settingsKey
+			this.#onSettingsChange = onSettingsChange
+
+			this.#backBtn = document.getElementById('back-button')
+			this.#settingsBtn = document.getElementById('settings-button')
+			this.#settingsDrawerEl = document.getElementById('settings-drawer')
+			this.#settingsCloseBtn = document.getElementById('settings-close')
+			this.#selectionHighlightToggle = document.getElementById('setting-selection-highlight')
+			this.#mainContentEl = document.getElementById('main-content')
+			this.#menuBackdrop = document.getElementById('menu-backdrop')
+
+			this.#settings = this.#loadSettings()
+			this.#applySettingsToUI()
+			this.#bindEvents()
+
+			// Initial notify
+			this.#onSettingsChange(this.#settings)
+		}
+
+		get settings() {
+			return { ...this.#settings }
+		}
+
+		#loadSettings() {
+			try {
+				const raw = localStorage.getItem(this.#settingsKey)
+				if (!raw) return { selectionHighlight: true }
+				const data = JSON.parse(raw)
+				if (!data || typeof data !== 'object') return { selectionHighlight: true }
+				return {
+					selectionHighlight: Boolean(data.selectionHighlight),
+				}
+			} catch {
+				return { selectionHighlight: true }
+			}
+		}
+
+		#saveSettings() {
+			try {
+				localStorage.setItem(this.#settingsKey, JSON.stringify(this.#settings))
+			} catch {
+				return
+			}
+		}
+
+		#applySettingsToUI() {
+			if (this.#selectionHighlightToggle instanceof HTMLInputElement) {
+				this.#selectionHighlightToggle.checked = Boolean(this.#settings.selectionHighlight)
+			}
+		}
+
+		#bindEvents() {
+			if (this.#backBtn instanceof HTMLButtonElement) {
+				this.#backBtn.addEventListener('click', () => {
+					window.location.href = '/'
+				})
+			}
+
+			if (this.#settingsBtn instanceof HTMLButtonElement) {
+				this.#settingsBtn.addEventListener('click', () => this.#toggleSettings())
+			}
+			if (this.#settingsCloseBtn instanceof HTMLButtonElement) {
+				this.#settingsCloseBtn.addEventListener('click', () => this.#closeSettings())
+			}
+			if (this.#selectionHighlightToggle instanceof HTMLInputElement) {
+				this.#selectionHighlightToggle.addEventListener('change', () => {
+					this.#settings.selectionHighlight = Boolean(this.#selectionHighlightToggle.checked)
+					this.#saveSettings()
+					this.#onSettingsChange(this.#settings)
+				})
+			}
+
+			window.addEventListener('keydown', e => {
+				if (e.key === 'Escape') {
+					if (this.#settingsDrawerEl instanceof HTMLElement && !this.#settingsDrawerEl.classList.contains('hidden')) {
+						this.#closeSettings()
+					}
+				}
+			})
+
+			if (this.#menuBackdrop instanceof HTMLElement) {
+				this.#menuBackdrop.addEventListener('click', () => this.#closeSettings())
+			}
+		}
+
+		#openSettings() {
+			if (!(this.#settingsDrawerEl instanceof HTMLElement)) return
+			this.#settingsDrawerEl.classList.remove('hidden')
+			if (this.#menuBackdrop instanceof HTMLElement) this.#menuBackdrop.classList.remove('hidden')
+		}
+
+		#closeSettings() {
+			if (!(this.#settingsDrawerEl instanceof HTMLElement)) return
+			this.#settingsDrawerEl.classList.add('hidden')
+			if (this.#menuBackdrop instanceof HTMLElement) this.#menuBackdrop.classList.add('hidden')
+		}
+
+		#toggleSettings() {
+			if (!(this.#settingsDrawerEl instanceof HTMLElement)) return
+			const open = !this.#settingsDrawerEl.classList.contains('hidden')
+			if (open) this.#closeSettings()
+			else this.#openSettings()
+		}
+	}
+
 	class SudokuUI {
 		#gridEl
 		#difficultyEl
@@ -470,16 +595,12 @@ const SudokuApp = (() => {
 		#eraseBtn
 		#notesBtn
 		#numberBtns
-		#backBtn
-		#settingsBtn
 		#drawerOpenBtn
 		#drawerEl
 		#drawerReset
 		#drawerNewGame
 		#resetBtn
-		#settingsDrawerEl
-		#settingsCloseBtn
-		#selectionHighlightToggle
+		#menuBackdrop
 
 		#cellEls = []
 		#selectedIdx = 0
@@ -495,7 +616,7 @@ const SudokuApp = (() => {
 		#locked = false
 		#settings = { selectionHighlight: true }
 
-		/** @param {Required<BootOptions>} options */
+		/** @param {Required<BootOptions> & { settings: { selectionHighlight: boolean }, generateNew?: boolean }} options */
 		constructor(options) {
 			this.#bootDifficulty = options.difficulty
 			this.#storage = new Storage(storageKeyFor(options.gameName))
@@ -506,16 +627,12 @@ const SudokuApp = (() => {
 			this.#eraseBtn = document.getElementById('erase-button')
 			this.#notesBtn = document.getElementById('notes-toggle-button')
 			this.#numberBtns = Array.from(document.querySelectorAll('.number-button'))
-			this.#backBtn = document.getElementById('back-button')
-			this.#settingsBtn = document.getElementById('settings-button')
 			this.#drawerOpenBtn = document.getElementById('drawer-open')
 			this.#drawerEl = document.getElementById('actions-drawer')
 			this.#drawerReset = document.getElementById('drawer-reset')
 			this.#drawerNewGame = document.getElementById('drawer-newgame')
 			this.#resetBtn = document.getElementById('reset-button')
-			this.#settingsDrawerEl = document.getElementById('settings-drawer')
-			this.#settingsCloseBtn = document.getElementById('settings-close')
-			this.#selectionHighlightToggle = document.getElementById('setting-selection-highlight')
+			this.#menuBackdrop = document.getElementById('menu-backdrop')
 
 			if (!(this.#gridEl instanceof HTMLElement)) throw new Error('Missing #sudoku-grid')
 			if (!(this.#difficultyEl instanceof HTMLElement)) throw new Error('Missing #game-difficulty')
@@ -529,10 +646,11 @@ const SudokuApp = (() => {
 				this.#scheduleSave()
 			})
 
-			this.#settings = this.#loadSettings()
-			this.#applySettingsToUI()
+			if (options.settings) {
+				this.#settings = { ...options.settings }
+			}
 
-			this.#game = this.#loadOrCreateGame()
+			this.#game = this.#loadOrCreateGame(options.generateNew)
 			this.#applyLoadedStateToUI()
 			this.#buildGrid()
 			this.#locked = this.#isCompleted()
@@ -541,6 +659,11 @@ const SudokuApp = (() => {
 			this.#render()
 			this.#updateInteractionState()
 			if (!this.#locked) this.#clock.start()
+		}
+
+		updateSettings(settings) {
+			this.#settings = { ...settings }
+			this.#render()
 		}
 
 		#isCompleted() {
@@ -570,42 +693,16 @@ const SudokuApp = (() => {
 			for (const b of this.#numberBtns) this.#applyDisabled(b, disabled)
 		}
 
-		#loadSettings() {
-			try {
-				const raw = localStorage.getItem(SETTINGS_KEY)
-				if (!raw) return { selectionHighlight: true }
-				const data = JSON.parse(raw)
-				if (!data || typeof data !== 'object') return { selectionHighlight: true }
-				return {
-					selectionHighlight: Boolean(data.selectionHighlight),
-				}
-			} catch {
-				return { selectionHighlight: true }
-			}
-		}
-
-		#saveSettings() {
-			try {
-				localStorage.setItem(SETTINGS_KEY, JSON.stringify(this.#settings))
-			} catch {
-				return
-			}
-		}
-
-		#applySettingsToUI() {
-			if (this.#selectionHighlightToggle instanceof HTMLInputElement) {
-				this.#selectionHighlightToggle.checked = Boolean(this.#settings.selectionHighlight)
-			}
-		}
-
 		#openDrawer() {
 			if (!(this.#drawerEl instanceof HTMLElement)) return
 			this.#drawerEl.classList.remove('hidden')
+			if (this.#menuBackdrop instanceof HTMLElement) this.#menuBackdrop.classList.remove('hidden')
 		}
 
 		#closeDrawer() {
 			if (!(this.#drawerEl instanceof HTMLElement)) return
 			this.#drawerEl.classList.add('hidden')
+			if (this.#menuBackdrop instanceof HTMLElement) this.#menuBackdrop.classList.add('hidden')
 		}
 
 		#toggleDrawer() {
@@ -613,27 +710,8 @@ const SudokuApp = (() => {
 			const open = !this.#drawerEl.classList.contains('hidden')
 			if (open) this.#closeDrawer()
 			else {
-				this.#closeSettings()
 				this.#openDrawer()
 			}
-		}
-
-		#openSettings() {
-			if (!(this.#settingsDrawerEl instanceof HTMLElement)) return
-			this.#closeDrawer()
-			this.#settingsDrawerEl.classList.remove('hidden')
-		}
-
-		#closeSettings() {
-			if (!(this.#settingsDrawerEl instanceof HTMLElement)) return
-			this.#settingsDrawerEl.classList.add('hidden')
-		}
-
-		#toggleSettings() {
-			if (!(this.#settingsDrawerEl instanceof HTMLElement)) return
-			const open = !this.#settingsDrawerEl.classList.contains('hidden')
-			if (open) this.#closeSettings()
-			else this.#openSettings()
 		}
 
 		#unitKey(kind, index) {
@@ -692,10 +770,17 @@ const SudokuApp = (() => {
 				{ key: this.#unitKey('b', b), indices: boxIndices },
 			]
 			for (const u of candidates) {
-				if (this.#completedUnits.has(u.key)) continue
-				if (!this.#isUnitComplete(u.indices)) continue
-				this.#completedUnits.add(u.key)
-				this.#glowCells(u.indices)
+				const isComplete = this.#isUnitComplete(u.indices)
+				if (isComplete) {
+					if (!this.#completedUnits.has(u.key)) {
+						this.#completedUnits.add(u.key)
+						this.#glowCells(u.indices)
+					}
+				} else {
+					if (this.#completedUnits.has(u.key)) {
+						this.#completedUnits.delete(u.key)
+					}
+				}
 			}
 		}
 
@@ -706,17 +791,21 @@ const SudokuApp = (() => {
 			return `${mm}:${ss}`
 		}
 
-		#loadOrCreateGame() {
-			const loaded = this.#storage.load()
-			if (loaded) {
-				const game = new SudokuGame({ puzzle: loaded.puzzle, solution: loaded.solution, difficulty: loaded.difficulty })
-				game.values = loaded.values.map(v => Math.max(0, Math.min(9, v)))
-				game.fixed = game.puzzle.map(v => Boolean(v))
-				game.notesMask = loaded.notesMask.map(m => m & ALL_MASK)
-				game.notesMode = loaded.notesMode
-				game.difficulty = loaded.difficulty
-				this.#clock.resetTo(loaded.elapsedSeconds)
-				return game
+		#loadOrCreateGame(generateNew) {
+			if (!generateNew) {
+				const loaded = this.#storage.load()
+				if (loaded) {
+					const game = new SudokuGame({ puzzle: loaded.puzzle, solution: loaded.solution, difficulty: loaded.difficulty || 'Easy' })
+					game.values = loaded.values.map(v => Math.max(0, Math.min(9, v)))
+					game.fixed = game.puzzle.map(v => Boolean(v))
+					game.notesMask = loaded.notesMask.map(m => m & ALL_MASK)
+					game.notesMode = loaded.notesMode
+					game.difficulty = loaded.difficulty || 'Easy'
+					this.#clock.resetTo(loaded.elapsedSeconds)
+					return game
+				}
+			} else {
+				this.#storage.clear()
 			}
 			const spec = SudokuGenerator.generate(this.#bootDifficulty)
 			this.#clock.resetTo(0)
@@ -790,6 +879,14 @@ const SudokuApp = (() => {
 			})
 
 			window.addEventListener('keydown', e => {
+				if (e.key === 'Escape') {
+					if (this.#drawerEl instanceof HTMLElement && !this.#drawerEl.classList.contains('hidden')) {
+						this.#closeDrawer()
+						e.preventDefault()
+						return
+					}
+				}
+
 				if (this.#locked) return
 				if (e.defaultPrevented) return
 				if (e.ctrlKey || e.metaKey || e.altKey) return
@@ -833,10 +930,11 @@ const SudokuApp = (() => {
 
 			this.#undoBtn.addEventListener('click', () => {
 				if (this.#locked) return
-				if (this.#game.undoOne()) {
+				const changedIdx = this.#game.undoOne()
+				if (changedIdx !== null) {
 					this.#render()
 					this.#scheduleSave()
-					this.#checkAndAnimateCompletions(this.#selectedIdx)
+					this.#checkAndAnimateCompletions(changedIdx)
 				}
 			})
 
@@ -877,20 +975,6 @@ const SudokuApp = (() => {
 				})
 			}
 
-			if (this.#settingsBtn instanceof HTMLButtonElement) {
-				this.#settingsBtn.addEventListener('click', () => this.#toggleSettings())
-			}
-			if (this.#settingsCloseBtn instanceof HTMLButtonElement) {
-				this.#settingsCloseBtn.addEventListener('click', () => this.#closeSettings())
-			}
-			if (this.#selectionHighlightToggle instanceof HTMLInputElement) {
-				this.#selectionHighlightToggle.addEventListener('change', () => {
-					this.#settings.selectionHighlight = Boolean(this.#selectionHighlightToggle.checked)
-					this.#saveSettings()
-					this.#render()
-				})
-			}
-
 			if (this.#resetBtn instanceof HTMLButtonElement) {
 				this.#resetBtn.addEventListener('click', () => {
 					const ok = window.confirm('Reset this game?')
@@ -910,26 +994,9 @@ const SudokuApp = (() => {
 				})
 			}
 
-			if (this.#backBtn instanceof HTMLButtonElement) {
-				this.#backBtn.addEventListener('click', () => {
-					history.back()
-				})
+			if (this.#menuBackdrop instanceof HTMLElement) {
+				this.#menuBackdrop.addEventListener('click', () => this.#closeDrawer())
 			}
-
-			document.addEventListener('click', e => {
-				const t = e.target instanceof Node ? e.target : null
-				if (!t) return
-				if (this.#drawerEl instanceof HTMLElement && !this.#drawerEl.classList.contains('hidden')) {
-					if (this.#drawerEl.contains(t)) return
-					if (this.#drawerOpenBtn instanceof HTMLElement && this.#drawerOpenBtn.contains(t)) return
-					this.#closeDrawer()
-				}
-				if (this.#settingsDrawerEl instanceof HTMLElement && !this.#settingsDrawerEl.classList.contains('hidden')) {
-					if (this.#settingsDrawerEl.contains(t)) return
-					if (this.#settingsBtn instanceof HTMLElement && this.#settingsBtn.contains(t)) return
-					this.#closeSettings()
-				}
-			})
 
 			window.addEventListener('beforeunload', () => this.#saveNow())
 		}
@@ -1080,6 +1147,10 @@ const SudokuApp = (() => {
 				if (isGlow && !isConflict) {
 					classes.add('shadow-lg')
 					classes.add('shadow-emerald-500/30')
+					classes.add('ring-2')
+					classes.add('ring-emerald-400')
+					classes.add('ring-inset')
+					classes.add('z-20')
 				}
 				cell.className = Array.from(classes).join(' ')
 				cell.replaceChildren()
@@ -1119,9 +1190,17 @@ const SudokuApp = (() => {
 	/** @param {BootOptions} [options] */
 	const boot = options => {
 		const difficulty = options?.difficulty ?? 'Easy'
-		const gameName = typeof options?.gameName === 'string' && options.gameName.trim() ? options.gameName.trim() : 'normal'
+		let gameName = typeof options?.gameName === 'string' && options.gameName.trim() ? options.gameName.trim() : 'normal'
+		if (gameName !== 'normal' && gameName !== 'daily') {
+			gameName = 'normal'
+		}
+		const generateNew = Boolean(options?.generateNew)
 		try {
-			new SudokuUI({ difficulty, gameName })
+			let gameUI = null
+			const appShell = new AppShell(SETTINGS_KEY, settings => {
+				if (gameUI) gameUI.updateSettings(settings)
+			})
+			gameUI = new SudokuUI({ difficulty, gameName, settings: appShell.settings, generateNew })
 		} catch (e) {
 			const msg = e instanceof Error ? e.message : String(e)
 			console.error('Sudoku init failed:', msg)
@@ -1131,4 +1210,30 @@ const SudokuApp = (() => {
 	return { boot }
 })()
 
-document.addEventListener('DOMContentLoaded', () => SudokuApp.boot({ difficulty: 'Easy', gameName: 'normal' }))
+document.addEventListener('DOMContentLoaded', () => {
+	const generateNewQuery = new URLSearchParams(window.location.search).get('new')
+	console.log("generateNewQuery:", generateNewQuery)
+
+	let gameDifficulty = 'Easy'
+	let generateNew = false
+
+	const difficultyMap = {
+		Easy: 'Easy',
+		Medium: 'Medium',
+		Hard: 'Hard',
+		Expert: 'Extreme',
+		Extreme: 'Extreme',
+	}
+
+	if (generateNewQuery && difficultyMap[generateNewQuery]) {
+		gameDifficulty = difficultyMap[generateNewQuery]
+		generateNew = true
+	}
+
+	console.log("generate new:", generateNew)
+	console.log("game difficulty:", gameDifficulty)
+
+	SudokuApp.boot(
+		{ difficulty: gameDifficulty, gameName: 'normal', generateNew: generateNew }
+	)
+})
