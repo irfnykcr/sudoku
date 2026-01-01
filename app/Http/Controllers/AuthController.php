@@ -9,12 +9,10 @@ use Illuminate\Support\Facades\Validator;
 use Tymon\JWTAuth\Facades\JWTAuth;
 use Tymon\JWTAuth\Exceptions\JWTException;
 
-class AuthController extends Controller
-{
-    public function register(Request $request)
-    {
+class AuthController extends Controller {
+    public function register(Request $request) {
         $validator = Validator::make($request->all(), [
-            'name' => 'required|string|max:255|unique:users',
+            'user' => 'required|string|max:255|unique:users',
             'email' => 'nullable|string|email|max:255|unique:users',
             'password' => 'required|string|min:6|confirmed',
         ]);
@@ -24,7 +22,7 @@ class AuthController extends Controller
         }
 
         $user = User::create([
-            'name' => $request->get('name'),
+            'user' => $request->get('user'),
             'email' => $request->get('email'),
             'password' => Hash::make($request->get('password')),
         ]);
@@ -34,12 +32,11 @@ class AuthController extends Controller
         return redirect('/me')->withCookie(cookie('token', $token, 60));
     }
 
-    public function login(Request $request)
-    {
+    public function login(Request $request) {
         $login = $request->input('login');
         $password = $request->input('password');
 
-        $loginField = filter_var($login, FILTER_VALIDATE_EMAIL) ? 'email' : 'name';
+        $loginField = filter_var($login, FILTER_VALIDATE_EMAIL) ? 'email' : 'user';
         $credentials = [$loginField => $login, 'password' => $password];
 
         try {
@@ -53,19 +50,22 @@ class AuthController extends Controller
         return redirect('/me')->withCookie(cookie('token', $token, 60));
     }
 
-    public function logout()
-    {
+    public function logout() {
         try {
             JWTAuth::invalidate(JWTAuth::getToken());
         } catch (\Exception $e) {
-            // Token might be already invalid
+            // token might be already invalid
         }
         return redirect('/login')->withCookie(cookie()->forget('token'));
     }
 
-    public function refresh()
-    {
-        $token = JWTAuth::refresh(JWTAuth::getToken());
-        return redirect('/me')->withCookie(cookie('token', $token, 60));
+    public function refresh() {
+        try {
+            $token = JWTAuth::parseToken()->refresh();
+            return response()->json(['success' => true])
+                ->withCookie(cookie('token', $token, 60));
+        } catch (\Exception $e) {
+            return response()->json(['error' => 'Unauthorized'], 401);
+        }
     }
 }

@@ -24,13 +24,27 @@ Route::get('register', function () {
 Route::post('register', [AuthController::class, 'register']);
 Route::post('login', [AuthController::class, 'login']);
 
+use App\Http\Controllers\GameController;
+
+Route::middleware([AttachJwtToken::class])->group(function () {
+    Route::post('refresh', [AuthController::class, 'refresh']);
+});
+
 Route::group(['middleware' => [AttachJwtToken::class, 'auth:api']], function() {
     Route::post('logout', [AuthController::class, 'logout']);
-    Route::post('refresh', [AuthController::class, 'refresh']);
     // Route::get('/user', function() {
     //     return auth()->user();
     // });
     Route::get('/me', function() {
-        return view('user');
+        $user = auth()->user();
+        $username = $user ? $user->user : 'Guest';
+        return view('user', ['username' => $username]);
     });
+
+    // game Routes
+    Route::get('/api/game/load', [GameController::class, 'load']);
+    Route::post('/api/game/start', [GameController::class, 'start']);
+    Route::post('/api/game/save', [GameController::class, 'save']);
+    Route::post('/api/game/reset', [GameController::class, 'reset']);
+    Route::post('/api/game/check', [GameController::class, 'check']);
 });

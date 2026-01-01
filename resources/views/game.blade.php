@@ -3,11 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <script src="/js/sudoku.js"></script>
 	<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <title>sudoku</title>
 </head>
-<header>
+<header class="z-99">
 	<!-- left:back button, right:settings -->
 	<div class="fixed top-0 left-0 w-full h-18  bg-white backdrop-blur-sm shadow-lg">
 		<div class="flex justify-between items-center pl-1 pr-1">
@@ -24,10 +25,10 @@
 		</div>
 	</div>
 </header>
-<body class="bg-linear-to-br from-amber-50 to-amber-100 min-h-screen flex items-center justify-center p-4">
-    <main id="main-content" class="flex flex-col w-full max-w-2xl mx-auto space-y-8 items-center">
+<body class="bg-linear-to-br from-amber-50 to-amber-100 min-h-screen flex items-center justify-center p-2 sm:p-4">
+    <main id="main-content" class="flex flex-col w-full max-w-5xl mx-auto space-y-2 sm:space-y-8 items-center">
 		<!-- head: difficulty, time, reset -->
-		<div class="pt-20 w-full flex flex-col sm:flex-row sm:justify-between sm:items-center px-4 gap-3">
+		<div class="pt-16 sm:pt-20 w-full flex flex-col sm:flex-row sm:justify-between sm:items-center px-4 gap-1 sm:gap-3">
 			<p class="text-lg text-indigo-600 font-semibold">Difficulty: <span id="game-difficulty">Easy</span></p>
 
 			<div class="flex items-center justify-between sm:justify-end gap-3">
@@ -52,29 +53,34 @@
 			</div>
 		</div>
 
-		<!-- Sudoku Grid -->
-		<div id="sudoku-grid" class="min-w-[356px] grid grid-cols-9 gap-1 bg-white p-2 rounded-lg shadow-lg"></div>
+		<div class="flex flex-col landscape:flex-row items-center landscape:items-center justify-center gap-4 sm:gap-8 w-full max-w-6xl">
+			<!-- Sudoku Grid -->
+			<div id="sudoku-grid" class="grid grid-cols-9 gap-0.5 sm:gap-1 bg-white p-1 sm:p-2 rounded-lg shadow-lg shrink-0"></div>
 
-		<!-- actions: undo, erease, notes-on/off -->
-		<div class="flex justify-between w-full max-w-md px-4">
-			<button id="undo-button" class="w-24 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 active:scale-95 text-white font-bold py-2 px-4 rounded-xl transition-all duration-150 shadow-lg hover:shadow-xl">
-				Undo
-			</button>
-			<button id="erase-button" class="w-24 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 active:scale-95 text-white font-bold py-2 px-4 rounded-xl transition-all duration-150 shadow-lg hover:shadow-xl">
-				Erase
-			</button>
-			<button id="notes-toggle-button" class="w-24 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 active:scale-95 text-white font-bold py-2 px-4 rounded-xl transition-all duration-150 shadow-lg hover:shadow-xl">
-				Notes: Off
-			</button>
-		</div>
+			<!-- Controls Wrapper -->
+			<div class="flex flex-col space-y-4 sm:space-y-6 w-full max-w-md px-2 sm:px-4 landscape:max-w-xs">
+				<!-- actions: undo, erease, notes-on/off -->
+				<div class="flex justify-between w-full gap-2">
+					<button id="undo-button" class="flex-1 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 active:scale-95 text-white font-bold py-2 px-1 sm:px-4 rounded-xl transition-all duration-150 shadow-lg hover:shadow-xl text-xs sm:text-base">
+						Undo
+					</button>
+					<button id="erase-button" class="flex-1 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 active:scale-95 text-white font-bold py-2 px-1 sm:px-4 rounded-xl transition-all duration-150 shadow-lg hover:shadow-xl text-xs sm:text-base">
+						Erase
+					</button>
+					<button id="notes-toggle-button" class="flex-1 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 active:scale-95 text-white font-bold py-2 px-1 sm:px-4 rounded-xl transition-all duration-150 shadow-lg hover:shadow-xl text-xs sm:text-base">
+						Notes: Off
+					</button>
+				</div>
 
-		<!-- number pad -->
-		<div class="grid grid-cols-9 gap-2 w-full max-w-md px-4">
-			@for ($i = 1; $i <= 9; $i++)
-				<button class="number-button w-8 sm:w-10 h-12 bg-white hover:bg-indigo-50 active:bg-indigo-100 active:scale-95 text-indigo-600 font-bold rounded-xl transition-all duration-150 shadow-lg hover:shadow-xl" data-number="{{ $i }}">
-					<p>{{ $i }}</p>
-				</button>
-			@endfor
+				<!-- number pad -->
+				<div class="grid grid-cols-9 landscape:grid-cols-3 gap-2 w-full">
+					@for ($i = 1; $i <= 9; $i++)
+						<button class="number-button w-full aspect-square sm:aspect-auto sm:h-12 bg-white hover:bg-indigo-50 active:bg-indigo-100 active:scale-95 text-indigo-600 font-bold rounded-xl transition-all duration-150 shadow-lg hover:shadow-xl flex items-center justify-center" data-number="{{ $i }}">
+							<p class="text-sm sm:text-lg">{{ $i }}</p>
+						</button>
+					@endfor
+				</div>
+			</div>
 		</div>
     </main>
 
@@ -97,6 +103,6 @@
 		</div>
 	</div>
 
-	<div id="menu-backdrop" class="fixed inset-0 z-40 hidden bg-black/20 backdrop-blur-sm"></div>
+	<div id="menu-backdrop" class="fixed hidden bg-black/20 backdrop-blur-sm"></div>
 </body>
 </html>

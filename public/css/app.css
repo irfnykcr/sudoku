@@ -1,0 +1,12 @@
+:root {
+	--login-cursor: url('/images/cursor-login.svg'), pointer;
+}
+
+.cursor-login {
+	cursor: var(--login-cursor) !important;
+	pointer-events: auto !important;
+}
+
+@theme {
+	--login-cursor: url('/images/cursor-login.svg'), pointer;
+}

@@ -13,6 +13,29 @@ const SudokuApp = (() => {
 
 	const storageKeyFor = gameName => `sudoku:game:${gameName}:v${VERSION}`
 
+	const fetchWithAuth = async (url, options = {}) => {
+		let response = await fetch(url, { ...options, credentials: 'include' })
+		
+		if (response.status === 401) {
+			try {
+				const refreshResponse = await fetch('/refresh', {
+					method: 'POST',
+					headers: {
+						'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content
+					},
+					credentials: 'include'
+				})
+				
+				if (refreshResponse.ok) {
+					response = await fetch(url, { ...options, credentials: 'include' })
+				}
+			} catch (e) {
+				console.error('Token refresh failed', e)
+			}
+		}
+		return response
+	}
+
 	const clampInt = n => {
 		const num = typeof n === 'number' ? n : Number(n)
 		const v = Number.isFinite(num) ? Math.trunc(num) : 0
@@ -301,6 +324,7 @@ const SudokuApp = (() => {
 		notesMode = false
 		difficulty = 'Medium'
 		undo = new UndoStack(300)
+		isCompleted = false
 
 		constructor(spec) {
 			this.puzzle = spec.puzzle.slice()
@@ -309,6 +333,7 @@ const SudokuApp = (() => {
 			this.fixed = this.puzzle.map(v => Boolean(v))
 			this.notesMask = Array.from({ length: CELL_COUNT }, () => 0)
 			this.difficulty = /** @type {Difficulty} */ (spec.difficulty)
+			this.isCompleted = Boolean(spec.isCompleted)
 		}
 
 		reset() {
@@ -316,6 +341,7 @@ const SudokuApp = (() => {
 			this.notesMask = Array.from({ length: CELL_COUNT }, () => 0)
 			this.notesMode = false
 			this.undo.clear()
+			this.isCompleted = false
 		}
 
 		canEdit(idx) {
@@ -407,64 +433,127 @@ const SudokuApp = (() => {
 			this.#key = key
 		}
 
-		load() {
+		async load() {
 			try {
-				const raw = localStorage.getItem(this.#key)
-				if (!raw) return null
-				/** @type {SavedState} */
-				const data = JSON.parse(raw)
-				if (!data || data.version !== VERSION) return null
-				if (!Array.isArray(data.puzzle) || !Array.isArray(data.solution) || !Array.isArray(data.values)) return null
-				if (data.puzzle.length !== CELL_COUNT || data.solution.length !== CELL_COUNT || data.values.length !== CELL_COUNT) return null
-				const puzzle = data.puzzle.map(clampInt)
-				const solution = data.solution.map(clampInt)
-				const values = data.values.map(clampInt)
-				const notesMask = Array.isArray(data.notesMask) && data.notesMask.length === CELL_COUNT ? data.notesMask.map(clampInt) : Array.from({ length: CELL_COUNT }, () => 0)
-				const difficulty = typeof data.difficulty === 'string' ? data.difficulty : 'Medium'
-				const elapsedSeconds = clampInt(data.elapsedSeconds)
-				const notesMode = Boolean(data.notesMode)
+				const response = await fetchWithAuth('/api/game/load', {
+					headers: {
+						'Accept': 'application/json',
+					},
+				})
+				
+				if (!response.ok) return null
+				
+				const data = await response.json()
+				if (!data.game) return null
 
-				const isDigit = v => Number.isInteger(v) && v >= 0 && v <= 9
-				if (!puzzle.every(isDigit) || !solution.every(isDigit) || !values.every(isDigit)) return null
-				const givens = puzzle.reduce((acc, v) => acc + (v ? 1 : 0), 0)
-				if (givens === 0) return null
-				if (SudokuRules.conflicts(puzzle).size !== 0) return null
-				if (!SudokuRules.isSolved(solution)) return null
-				for (let i = 0; i < CELL_COUNT; i += 1) {
-					if (puzzle[i] && puzzle[i] !== solution[i]) return null
-					if (values[i] && values[i] !== solution[i] && puzzle[i]) return null
+				const game = data.game
+				return {
+					puzzle: game.puzzle,
+					solution: [], // solution is hidden from client
+					values: game.values,
+					notesMask: game.notesMask,
+					difficulty: game.difficulty,
+					elapsedSeconds: game.elapsedSeconds,
+					isCompleted: game.isCompleted,
+					notesMode: false // reset notes mode on load
 				}
-
-				return { puzzle, solution, values, notesMask, difficulty, elapsedSeconds, notesMode }
-			} catch {
+			} catch (e) {
+				console.error('Failed to load game:', e)
 				return null
 			}
 		}
 
-		save(s) {
+		async save(s) {
 			try {
-				const payload = {
-					version: VERSION,
-					difficulty: s.game.difficulty,
-					elapsedSeconds: s.elapsedSeconds,
-					notesMode: s.game.notesMode,
-					puzzle: s.game.puzzle,
-					solution: s.game.solution,
-					values: s.game.values,
-					notesMask: s.game.notesMask,
+				await fetchWithAuth('/api/game/save', {
+					method: 'POST',
+					headers: {
+						'Content-Type': 'application/json',
+						'Accept': 'application/json',
+						'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content
+					},
+					body: JSON.stringify({
+						values: s.game.values,
+						notes: s.game.notesMask,
+						elapsed_seconds: s.elapsedSeconds
+					})
+				})
+			} catch (e) {
+				console.error('Failed to save game:', e)
+			}
+		}
+
+		async startNew(difficulty) {
+			try {
+				const response = await fetchWithAuth('/api/game/start', {
+					method: 'POST',
+					headers: {
+						'Content-Type': 'application/json',
+						'Accept': 'application/json',
+						'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content,
+					},
+					body: JSON.stringify({ difficulty })
+				})
+
+				if (!response.ok) throw new Error('Failed to start new game')
+				
+				const data = await response.json()
+				const game = data.game
+				
+				return {
+					puzzle: game.puzzle,
+					solution: [],
+					values: game.values,
+					notesMask: game.notesMask,
+					difficulty: game.difficulty,
+					elapsedSeconds: game.elapsedSeconds,
+					isCompleted: game.isCompleted,
+					notesMode: false
 				}
-				localStorage.setItem(this.#key, JSON.stringify(payload))
-			} catch {
-				return
+			} catch (e) {
+				console.error('Failed to start new game:', e)
+				throw e
+			}
+		}
+
+		async checkCompletion(values, elapsedSeconds) {
+			try {
+				const response = await fetchWithAuth('/api/game/check', {
+					method: 'POST',
+					headers: {
+						'Content-Type': 'application/json',
+						'Accept': 'application/json',
+						'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content
+					},
+					body: JSON.stringify({ values, elapsed_seconds: elapsedSeconds })
+				})
+				
+				if (!response.ok) return false
+				const data = await response.json()
+				return data.completed
+			} catch (e) {
+				console.error('Failed to check completion:', e)
+				return false
+			}
+		}
+
+		async reset() {
+			try {
+				await fetchWithAuth('/api/game/reset', {
+					method: 'POST',
+					headers: {
+						'Content-Type': 'application/json',
+						'Accept': 'application/json',
+						'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content
+					},
+				})
+			} catch (e) {
+				console.error('Failed to reset game:', e)
 			}
 		}
 
 		clear() {
-			try {
-				localStorage.removeItem(this.#key)
-			} catch {
-				return
-			}
+			// no-op for server storage as we just overwrite
 		}
 	}
 
@@ -497,7 +586,7 @@ const SudokuApp = (() => {
 			this.#applySettingsToUI()
 			this.#bindEvents()
 
-			// Initial notify
+			// initial notify
 			this.#onSettingsChange(this.#settings)
 		}
 
@@ -614,6 +703,7 @@ const SudokuApp = (() => {
 		#nextGlowToken = 1
 		#solvedShown = false
 		#locked = false
+		#isDirty = false
 		#settings = { selectionHighlight: true }
 
 		/** @param {Required<BootOptions> & { settings: { selectionHighlight: boolean }, generateNew?: boolean }} options */
@@ -643,14 +733,22 @@ const SudokuApp = (() => {
 
 			this.#clock = new GameClock(elapsed => {
 				this.#timerEl.textContent = SudokuUI.formatTime(elapsed)
-				this.#scheduleSave()
+				this.#markDirty()
 			})
 
 			if (options.settings) {
 				this.#settings = { ...options.settings }
 			}
 
-			this.#game = this.#loadOrCreateGame(options.generateNew)
+			this.#saveTimer = setInterval(() => {
+				if (this.#isDirty) this.#saveNow()
+			}, 1000)
+
+			this.#initGame(options.generateNew)
+		}
+
+		async #initGame(generateNew) {
+			this.#game = await this.#loadOrCreateGame(generateNew)
 			this.#applyLoadedStateToUI()
 			this.#buildGrid()
 			this.#locked = this.#isCompleted()
@@ -667,10 +765,8 @@ const SudokuApp = (() => {
 		}
 
 		#isCompleted() {
+			if (this.#game.isCompleted) return true
 			if (!SudokuRules.isSolved(this.#game.values)) return false
-			for (let i = 0; i < CELL_COUNT; i += 1) {
-				if (this.#game.values[i] !== this.#game.solution[i]) return false
-			}
 			return true
 		}
 
@@ -791,11 +887,16 @@ const SudokuApp = (() => {
 			return `${mm}:${ss}`
 		}
 
-		#loadOrCreateGame(generateNew) {
+		async #loadOrCreateGame(generateNew) {
 			if (!generateNew) {
-				const loaded = this.#storage.load()
+				const loaded = await this.#storage.load()
 				if (loaded) {
-					const game = new SudokuGame({ puzzle: loaded.puzzle, solution: loaded.solution, difficulty: loaded.difficulty || 'Easy' })
+					const game = new SudokuGame({ 
+						puzzle: loaded.puzzle, 
+						solution: loaded.solution, 
+						difficulty: loaded.difficulty || 'Easy',
+						isCompleted: loaded.isCompleted
+					})
 					game.values = loaded.values.map(v => Math.max(0, Math.min(9, v)))
 					game.fixed = game.puzzle.map(v => Boolean(v))
 					game.notesMask = loaded.notesMask.map(m => m & ALL_MASK)
@@ -804,12 +905,23 @@ const SudokuApp = (() => {
 					this.#clock.resetTo(loaded.elapsedSeconds)
 					return game
 				}
-			} else {
-				this.#storage.clear()
 			}
-			const spec = SudokuGenerator.generate(this.#bootDifficulty)
-			this.#clock.resetTo(0)
-			return new SudokuGame(spec)
+			
+			// if generateNew is true OR load failed, start new game
+			const loaded = await this.#storage.startNew(this.#bootDifficulty)
+			const game = new SudokuGame({ 
+				puzzle: loaded.puzzle, 
+				solution: loaded.solution, 
+				difficulty: loaded.difficulty,
+				isCompleted: loaded.isCompleted
+			})
+			game.values = loaded.values.map(v => Math.max(0, Math.min(9, v)))
+			game.fixed = game.puzzle.map(v => Boolean(v))
+			game.notesMask = loaded.notesMask.map(m => m & ALL_MASK)
+			game.notesMode = loaded.notesMode
+			game.difficulty = loaded.difficulty
+			this.#clock.resetTo(loaded.elapsedSeconds)
+			return game
 		}
 
 		#applyLoadedStateToUI() {
@@ -856,12 +968,16 @@ const SudokuApp = (() => {
 				'bg-white',
 				'rounded-sm',
 				...border,
-				'h-9',
-				'w-9',
-				'sm:h-11',
-				'sm:w-11',
-				'md:h-12',
-				'md:w-12',
+				'h-8', 'w-8',
+				'min-[380px]:h-9', 'min-[380px]:w-9',
+				'sm:h-11', 'sm:w-11',
+				'md:h-12', 'md:w-12',
+				'landscape:h-7', 'landscape:w-7', // for tablets
+				'landscape:min-[800px]:h-9', 'landscape:min-[800px]:w-9',
+				'landscape:sm:h-10', 'landscape:sm:w-10',
+				'landscape:md:h-11', 'landscape:md:w-11',
+				'[@media(max-height:600px)]:h-7', '[@media(max-height:600px)]:w-7',
+				'[@media(max-height:600px)]:sm:h-8', '[@media(max-height:600px)]:sm:w-8',
 				'select-none',
 				'focus:outline-none',
 				'transition-colors',
@@ -904,7 +1020,7 @@ const SudokuApp = (() => {
 					if (!this.#ensureEditableSelection()) return
 					if (this.#game.erase(this.#selectedIdx)) {
 						this.#render()
-						this.#scheduleSave()
+						this.#markDirty()
 					}
 					return
 				}
@@ -922,7 +1038,7 @@ const SudokuApp = (() => {
 						if (!this.#ensureEditableSelection()) return
 						if (this.#game.erase(this.#selectedIdx)) {
 							this.#render()
-							this.#scheduleSave()
+							this.#markDirty()
 						}
 					}
 				}
@@ -933,7 +1049,7 @@ const SudokuApp = (() => {
 				const changedIdx = this.#game.undoOne()
 				if (changedIdx !== null) {
 					this.#render()
-					this.#scheduleSave()
+					this.#markDirty()
 					this.#checkAndAnimateCompletions(changedIdx)
 				}
 			})
@@ -943,7 +1059,7 @@ const SudokuApp = (() => {
 				if (!this.#ensureEditableSelection()) return
 				if (this.#game.erase(this.#selectedIdx)) {
 					this.#render()
-					this.#scheduleSave()
+					this.#markDirty()
 					this.#checkAndAnimateCompletions(this.#selectedIdx)
 				}
 			})
@@ -952,7 +1068,7 @@ const SudokuApp = (() => {
 				if (this.#locked) return
 				this.#game.notesMode = !this.#game.notesMode
 				this.#notesBtn.textContent = this.#game.notesMode ? 'Notes: On' : 'Notes: Off'
-				this.#scheduleSave()
+				this.#markDirty()
 			})
 
 			if (this.#drawerOpenBtn instanceof HTMLButtonElement) {
@@ -1013,14 +1129,19 @@ const SudokuApp = (() => {
 			this.#render()
 			this.#updateInteractionState()
 			this.#clock.start()
-			this.#saveNow()
+			this.#storage.reset()
+			this.#isDirty = false
 		}
 
 		/** @param {Difficulty} difficulty */
-		#newGame(difficulty) {
-			this.#storage.clear()
-			const spec = SudokuGenerator.generate(difficulty)
-			this.#game = new SudokuGame(spec)
+		async #newGame(difficulty) {
+			const loaded = await this.#storage.startNew(difficulty)
+			this.#game = new SudokuGame({ 
+				puzzle: loaded.puzzle, 
+				solution: loaded.solution, 
+				difficulty: loaded.difficulty,
+				isCompleted: loaded.isCompleted
+			})
 			this.#completedUnits = new Set()
 			this.#solvedShown = false
 			this.#locked = false
@@ -1060,17 +1181,21 @@ const SudokuApp = (() => {
 			else changed = this.#game.setValue(this.#selectedIdx, n)
 			if (!changed) return
 			this.#render()
-			this.#scheduleSave()
+			this.#markDirty()
 			this.#checkAndAnimateCompletions(this.#selectedIdx)
 			this.#maybeSolved()
 		}
 
-		#maybeSolved() {
+		async #maybeSolved() {
 			if (this.#solvedShown) return
+			
+			// optimistic check locally first
 			if (!SudokuRules.isSolved(this.#game.values)) return
-			for (let i = 0; i < CELL_COUNT; i += 1) {
-				if (this.#game.values[i] !== this.#game.solution[i]) return
-			}
+
+			// verify with server
+			const isCompleted = await this.#storage.checkCompletion(this.#game.values, this.#clock.elapsedSeconds())
+			if (!isCompleted) return
+
 			this.#solvedShown = true
 			this.#locked = true
 			this.#clock.stop()
@@ -1090,16 +1215,13 @@ const SudokuApp = (() => {
 			this.#render()
 		}
 
-		#scheduleSave() {
-			if (this.#saveTimer) return
-			this.#saveTimer = window.setTimeout(() => {
-				this.#saveTimer = null
-				this.#saveNow()
-			}, 400)
+		#markDirty() {
+			this.#isDirty = true
 		}
 
 		#saveNow() {
 			this.#storage.save({ game: this.#game, elapsedSeconds: this.#clock.elapsedSeconds() })
+			this.#isDirty = false
 		}
 
 		#render() {
@@ -1213,6 +1335,12 @@ const SudokuApp = (() => {
 document.addEventListener('DOMContentLoaded', () => {
 	const generateNewQuery = new URLSearchParams(window.location.search).get('new')
 	console.log("generateNewQuery:", generateNewQuery)
+	
+	if (window.location.search) {
+		const url = new URL(window.location.href)
+		url.search = ''
+		window.history.replaceState({}, document.title, url.toString())
+	}
 
 	let gameDifficulty = 'Easy'
 	let generateNew = false

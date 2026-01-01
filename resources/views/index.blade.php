@@ -6,6 +6,8 @@
     <script src="/js/index.js"></script>
 	<script src="/js/footer.js"></script>
 	<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+	<link rel="stylesheet" href="/css/app.css">
+	<meta name="csrf-token" content="{{ csrf_token() }}">
 	<title>sudoku</title>
 </head>
 <body class="bg-linear-to-br from-amber-50 to-amber-100 flex items-center justify-center">
@@ -66,5 +68,5 @@
 	</div>
 </div>
 
-<div id="menu-backdrop" class="fixed inset-0 z-40 hidden bg-black/20 backdrop-blur-sm"></div>
+<div id="menu-backdrop" class="fixed inset-0 z-0 hidden bg-black/20 backdrop-blur-sm"></div>
 </html>
