@@ -11,15 +11,8 @@ class SudokuGenerator {
             mt_srand($seed);
         }
 
-        $targets = [
-            'Easy' => rand(54, 64),
-            'Medium' => rand(41, 53),
-            'Hard' => rand(29, 40),
-            // 'Extreme' => rand(23, 28),
-            'Extreme' => 79, // debug
-        ];
-
-        $targetGivens = $targets[$difficulty] ?? $targets['Easy'];
+        $config = config('sudoku.difficulties.' . $difficulty) ?? config('sudoku.difficulties.Easy');
+        $targetGivens = rand($config['min_givens'], $config['max_givens']);
 
         $empty = array_fill(0, self::CELL_COUNT, 0);
         $solution = self::fillRandom($empty);

@@ -37,29 +37,19 @@ class User extends Authenticatable implements JWTSubject {
      */
     protected $fillable = [
         'user',
-        'email',
         'password',
+        'best_score',
+        'total_score',
+        'stats',
     ];
 
-    /**
-     * The attributes that should be hidden for serialization.
-     *
-     * @var list<string>
-     */
+    protected $casts = [
+        'stats' => 'array',
+        'password' => 'hashed',
+    ];
+
     protected $hidden = [
         'password',
         'remember_token',
     ];
-
-    /**
-     * Get the attributes that should be cast.
-     *
-     * @return array<string, string>
-     */
-    protected function casts(): array {
-        return [
-            'email_verified_at' => 'datetime',
-            'password' => 'hashed',
-        ];
-    }
 }

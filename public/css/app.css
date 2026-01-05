@@ -10,3 +10,9 @@
 @theme {
 	--login-cursor: url('/images/cursor-login.svg'), pointer;
 }
+
+html, body {
+    overscroll-behavior: none !important;
+    overscroll-behavior-y: none !important;
+    min-height: 100%;
+}

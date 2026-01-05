@@ -17,7 +17,9 @@ class SudokuGame extends Model {
         'current_state',
         'notes',
         'elapsed_seconds',
+        'score',
         'is_completed',
+        'is_replay',
     ];
 
     protected $casts = [
@@ -26,6 +28,7 @@ class SudokuGame extends Model {
         'current_state' => 'array',
         'notes' => 'array',
         'is_completed' => 'boolean',
+        'is_replay' => 'boolean',
         'daily_date' => 'date',
     ];
 

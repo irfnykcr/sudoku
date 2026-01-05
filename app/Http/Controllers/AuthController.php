@@ -13,18 +13,21 @@ class AuthController extends Controller {
     public function register(Request $request) {
         $validator = Validator::make($request->all(), [
             'user' => 'required|string|max:255|unique:users',
-            'email' => 'nullable|string|email|max:255|unique:users',
             'password' => 'required|string|min:6|confirmed',
         ]);
 
         if($validator->fails()){
-            return response()->json($validator->errors()->toJson(), 400);
+            return back()->withErrors($validator)->withInput();
         }
+
+        $difficulties = array_keys(config('sudoku.difficulties'));
+        $stats = array_fill_keys($difficulties, 0);
+        $stats['Daily'] = 0;
 
         $user = User::create([
             'user' => $request->get('user'),
-            'email' => $request->get('email'),
             'password' => Hash::make($request->get('password')),
+            'stats' => $stats,
         ]);
 
         $token = JWTAuth::fromUser($user);
@@ -36,8 +39,7 @@ class AuthController extends Controller {
         $login = $request->input('login');
         $password = $request->input('password');
 
-        $loginField = filter_var($login, FILTER_VALIDATE_EMAIL) ? 'email' : 'user';
-        $credentials = [$loginField => $login, 'password' => $password];
+        $credentials = ['user' => $login, 'password' => $password];
 
         try {
             if (! $token = JWTAuth::attempt($credentials)) {

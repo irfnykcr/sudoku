@@ -1,5 +1,5 @@
 /** @typedef {0|1|2|3|4|5|6|7|8|9} Digit */
-/** @typedef {'Easy'|'Medium'|'Hard'|'Extreme'} Difficulty */
+/** @typedef {'Easy'|'Medium'|'Hard'|'Extreme'|'Test'} Difficulty */
 /** @typedef {{ puzzle: Digit[], solution: Digit[], values: Digit[], notesMask: number[], difficulty: Difficulty, elapsedSeconds: number, notesMode: boolean, version: number }} SavedState */
 /** @typedef {{ difficulty?: Difficulty, gameName?: string, generateNew?: boolean }} BootOptions */
 
@@ -56,40 +56,7 @@ const SudokuApp = (() => {
 		return a
 	}
 
-	const popCount9 = m => {
-		let x = m & ALL_MASK
-		let c = 0
-		while (x) {
-			c += x & 1
-			x >>= 1
-		}
-		return c
-	}
 
-	const lowestBit = m => m & -m
-	const bitToDigit = bit => Math.log2(bit) + 1
-
-	const Peers = (() => {
-		const peers = Array.from({ length: CELL_COUNT }, () => [])
-		for (let idx = 0; idx < CELL_COUNT; idx += 1) {
-			const r = rowOf(idx)
-			const c = colOf(idx)
-			const b = boxOf(idx)
-			const set = new Set()
-			for (let i = 0; i < 9; i += 1) {
-				set.add(r * 9 + i)
-				set.add(i * 9 + c)
-			}
-			const br = Math.floor(b / 3) * 3
-			const bc = (b % 3) * 3
-			for (let rr = br; rr < br + 3; rr += 1) {
-				for (let cc = bc; cc < bc + 3; cc += 1) set.add(rr * 9 + cc)
-			}
-			set.delete(idx)
-			peers[idx] = Array.from(set)
-		}
-		return { peers }
-	})()
 
 	class SudokuRules {
 		static conflicts(board) {
@@ -127,134 +94,7 @@ const SudokuApp = (() => {
 		}
 	}
 
-	class SudokuSolver {
-		static candidatesMask(board, idx) {
-			let used = 0
-			for (const p of Peers.peers[idx]) {
-				const v = board[p]
-				if (v) used |= 1 << (v - 1)
-			}
-			return (~used) & ALL_MASK
-		}
 
-		static solve(start) {
-			const board = start.slice()
-			const ok = SudokuSolver.#search(board, false)
-			return ok ? board : null
-		}
-
-		static countSolutions(start, limit = 2) {
-			const board = start.slice()
-			return SudokuSolver.#searchCount(board, limit)
-		}
-
-		static #selectCell(board) {
-			let bestIdx = -1
-			let bestCount = 10
-			let bestMask = 0
-			for (let idx = 0; idx < CELL_COUNT; idx += 1) {
-				if (board[idx]) continue
-				const mask = SudokuSolver.candidatesMask(board, idx)
-				const c = popCount9(mask)
-				if (c === 0) return { idx, mask, count: 0 }
-				if (c < bestCount) {
-					bestIdx = idx
-					bestCount = c
-					bestMask = mask
-					if (c === 1) break
-				}
-			}
-			return { idx: bestIdx, mask: bestMask, count: bestCount }
-		}
-
-		static #search(board, randomize) {
-			const { idx, mask, count } = SudokuSolver.#selectCell(board)
-			if (idx === -1) return true
-			if (count === 0) return false
-
-			const bits = []
-			let m = mask
-			while (m) {
-				const bit = lowestBit(m)
-				bits.push(bit)
-				m ^= bit
-			}
-			if (randomize) shuffleInPlace(bits)
-
-			for (const bit of bits) {
-				board[idx] = bitToDigit(bit)
-				if (SudokuSolver.#search(board, randomize)) return true
-				board[idx] = 0
-			}
-			return false
-		}
-
-		static #searchCount(board, limit) {
-			const { idx, mask, count } = SudokuSolver.#selectCell(board)
-			if (idx === -1) return 1
-			if (count === 0) return 0
-
-			let total = 0
-			let m = mask
-			while (m) {
-				const bit = lowestBit(m)
-				m ^= bit
-				board[idx] = bitToDigit(bit)
-				total += SudokuSolver.#searchCount(board, limit - total)
-				board[idx] = 0
-				if (total >= limit) return total
-			}
-			return total
-		}
-
-		static fillRandom(board) {
-			const b = board.slice()
-			const ok = SudokuSolver.#search(b, true)
-			return ok ? b : null
-		}
-	}
-
-	class SudokuGenerator {
-		static #randomInt(min, max) {
-			return Math.floor(Math.random() * (max - min)) + min
-		}
-		static #difficultyTargets() {
-			return {
-				Easy: this.#randomInt(54, 64),
-				Medium: this.#randomInt(41, 53),
-				Hard: this.#randomInt(29, 40),
-				Extreme: this.#randomInt(23, 28),
-			}
-		}
-
-		/** @param {Difficulty} difficulty */
-		static generate(difficulty) {
-			const targets = SudokuGenerator.#difficultyTargets()
-			const givensTarget = targets[difficulty] ?? targets.Easy
-
-			const empty = Array.from({ length: CELL_COUNT }, () => 0)
-			const solution = SudokuSolver.fillRandom(empty)
-			if (!solution) throw new Error('Failed to generate solution')
-
-
-			const puzzle = solution.slice()
-			const indices = shuffleInPlace(Array.from({ length: CELL_COUNT }, (_, i) => i))
-			let givens = CELL_COUNT
-
-			for (const idx of indices) {
-				if (givens <= givensTarget) break
-				const prev = puzzle[idx]
-				puzzle[idx] = 0
-				const count = SudokuSolver.countSolutions(puzzle, 2)
-				if (count !== 1) puzzle[idx] = prev
-				else givens -= 1
-			}
-
-			console.log(`Generated puzzle with ${givens} givens (target was ${givensTarget}) for difficulty ${difficulty}`)
-
-			return { puzzle, solution, difficulty }
-		}
-	}
 
 	class GameClock {
 		#startMs = 0
@@ -316,6 +156,9 @@ const SudokuApp = (() => {
 	}
 
 	class SudokuGame {
+		id
+		type
+		dailyDate
 		puzzle
 		solution
 		values
@@ -325,15 +168,20 @@ const SudokuApp = (() => {
 		difficulty = 'Medium'
 		undo = new UndoStack(300)
 		isCompleted = false
+		isReplay = false
 
 		constructor(spec) {
+			this.id = spec.id
+			this.type = spec.type || 'normal'
+			this.dailyDate = spec.dailyDate
 			this.puzzle = spec.puzzle.slice()
 			this.solution = spec.solution.slice()
-			this.values = spec.puzzle.slice()
+			this.values = (spec.values || spec.puzzle).slice()
 			this.fixed = this.puzzle.map(v => Boolean(v))
-			this.notesMask = Array.from({ length: CELL_COUNT }, () => 0)
+			this.notesMask = spec.notesMask || Array.from({ length: CELL_COUNT }, () => 0)
 			this.difficulty = /** @type {Difficulty} */ (spec.difficulty)
 			this.isCompleted = Boolean(spec.isCompleted)
+			this.isReplay = Boolean(spec.isReplay)
 		}
 
 		reset() {
@@ -448,6 +296,9 @@ const SudokuApp = (() => {
 
 				const game = data.game
 				return {
+					id: game.id,
+					type: game.type,
+					dailyDate: game.daily_date,
 					puzzle: game.puzzle,
 					solution: [], // solution is hidden from client
 					values: game.values,
@@ -455,10 +306,52 @@ const SudokuApp = (() => {
 					difficulty: game.difficulty,
 					elapsedSeconds: game.elapsedSeconds,
 					isCompleted: game.isCompleted,
+					isReplay: game.isReplay,
 					notesMode: false // reset notes mode on load
 				}
 			} catch (e) {
 				console.error('Failed to load game:', e)
+				return null
+			}
+		}
+
+		async loadDaily(date) {
+			try {
+				const url = date ? `/api/game/daily?date=${date}` : '/api/game/daily'
+
+				const response = await fetchWithAuth(url, {
+					headers: {
+						'Accept': 'application/json',
+					},
+				})
+				
+				if (response.status === 400) {
+					window.location.href = '/'
+					return null
+				}
+
+				if (!response.ok) return null
+				
+				const data = await response.json()
+				if (!data.game) return null
+
+				const game = data.game
+				return {
+					id: game.id,
+					type: game.type,
+					dailyDate: game.daily_date,
+					puzzle: game.puzzle,
+					solution: [],
+					values: game.values,
+					notesMask: game.notesMask,
+					difficulty: game.difficulty,
+					elapsedSeconds: game.elapsedSeconds,
+					isCompleted: game.isCompleted,
+					isReplay: game.isReplay,
+					notesMode: false
+				}
+			} catch (e) {
+				console.error('Failed to load daily game:', e)
 				return null
 			}
 		}
@@ -473,6 +366,7 @@ const SudokuApp = (() => {
 						'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content
 					},
 					body: JSON.stringify({
+						id: s.game.id,
 						values: s.game.values,
 						notes: s.game.notesMask,
 						elapsed_seconds: s.elapsedSeconds
@@ -501,6 +395,9 @@ const SudokuApp = (() => {
 				const game = data.game
 				
 				return {
+					id: game.id,
+					type: game.type,
+					dailyDate: game.daily_date,
 					puzzle: game.puzzle,
 					solution: [],
 					values: game.values,
@@ -508,6 +405,7 @@ const SudokuApp = (() => {
 					difficulty: game.difficulty,
 					elapsedSeconds: game.elapsedSeconds,
 					isCompleted: game.isCompleted,
+					isReplay: game.isReplay,
 					notesMode: false
 				}
 			} catch (e) {
@@ -516,7 +414,7 @@ const SudokuApp = (() => {
 			}
 		}
 
-		async checkCompletion(values, elapsedSeconds) {
+		async checkCompletion(id, values, elapsedSeconds) {
 			try {
 				const response = await fetchWithAuth('/api/game/check', {
 					method: 'POST',
@@ -525,20 +423,25 @@ const SudokuApp = (() => {
 						'Accept': 'application/json',
 						'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content
 					},
-					body: JSON.stringify({ values, elapsed_seconds: elapsedSeconds })
+					body: JSON.stringify({ id, values, elapsed_seconds: elapsedSeconds })
 				})
 				
-				if (!response.ok) return false
-				const data = await response.json()
-				return data.completed
+				if (!response.ok) return { completed: false }
+				return await response.json()
 			} catch (e) {
 				console.error('Failed to check completion:', e)
-				return false
+				return { completed: false }
 			}
 		}
 
-		async reset() {
+		async reset(id, guestData = null) {
 			try {
+				const body = { id }
+				if (guestData) {
+					body.puzzle = guestData.puzzle
+					body.solution = guestData.solution
+					body.difficulty = guestData.difficulty
+				}
 				await fetchWithAuth('/api/game/reset', {
 					method: 'POST',
 					headers: {
@@ -546,6 +449,7 @@ const SudokuApp = (() => {
 						'Accept': 'application/json',
 						'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content
 					},
+					body: JSON.stringify(body)
 				})
 			} catch (e) {
 				console.error('Failed to reset game:', e)
@@ -697,6 +601,8 @@ const SudokuApp = (() => {
 		#clock
 		#saveTimer = null
 		#bootDifficulty
+		#gameName
+		#bootDate
 		#storage
 		#completedUnits = new Set()
 		#glowTokenByIdx = Array.from({ length: CELL_COUNT }, () => 0)
@@ -706,9 +612,11 @@ const SudokuApp = (() => {
 		#isDirty = false
 		#settings = { selectionHighlight: true }
 
-		/** @param {Required<BootOptions> & { settings: { selectionHighlight: boolean }, generateNew?: boolean }} options */
+		/** @param {Required<BootOptions> & { settings: { selectionHighlight: boolean }, generateNew?: boolean, date?: string }} options */
 		constructor(options) {
+			this.#gameName = options.gameName
 			this.#bootDifficulty = options.difficulty
+			this.#bootDate = options.date
 			this.#storage = new Storage(storageKeyFor(options.gameName))
 			this.#gridEl = document.getElementById('sudoku-grid')
 			this.#difficultyEl = document.getElementById('game-difficulty')
@@ -747,8 +655,56 @@ const SudokuApp = (() => {
 			this.#initGame(options.generateNew)
 		}
 
+		#showGuestWarning() {
+			const alert = document.getElementById('guest-alert')
+			if (!alert) return
+
+			alert.classList.remove('hidden')
+		}
+
+		#showConfirmation(title, message, onConfirm) {
+			const modal = document.getElementById('confirmation-modal')
+			if (!modal) {
+				if (window.confirm(message)) onConfirm()
+				return
+			}
+
+			const titleEl = document.getElementById('confirmation-title')
+			const msgEl = document.getElementById('confirmation-message')
+			const confirmBtn = document.getElementById('confirmation-confirm')
+			const cancelBtn = document.getElementById('confirmation-cancel')
+
+			if (titleEl) titleEl.textContent = title
+			if (msgEl) msgEl.textContent = message
+
+			const close = () => {
+				modal.classList.add('hidden')
+				confirmBtn.onclick = null
+				cancelBtn.onclick = null
+				modal.onclick = null
+			}
+
+			confirmBtn.onclick = () => {
+				close()
+				onConfirm()
+			}
+
+			cancelBtn.onclick = close
+			
+			modal.onclick = (e) => {
+				if (e.target === modal) close()
+			}
+
+			modal.classList.remove('hidden')
+		}
+
 		async #initGame(generateNew) {
 			this.#game = await this.#loadOrCreateGame(generateNew)
+
+			if (this.#game.id === 0) {
+				this.#showGuestWarning()
+			}
+
 			this.#applyLoadedStateToUI()
 			this.#buildGrid()
 			this.#locked = this.#isCompleted()
@@ -888,44 +844,34 @@ const SudokuApp = (() => {
 		}
 
 		async #loadOrCreateGame(generateNew) {
+			const isDaily = this.#gameName === 'daily'
+
 			if (!generateNew) {
-				const loaded = await this.#storage.load()
+				const loaded = isDaily ? await this.#storage.loadDaily(this.#bootDate) : await this.#storage.load()
 				if (loaded) {
-					const game = new SudokuGame({ 
-						puzzle: loaded.puzzle, 
-						solution: loaded.solution, 
-						difficulty: loaded.difficulty || 'Easy',
-						isCompleted: loaded.isCompleted
-					})
-					game.values = loaded.values.map(v => Math.max(0, Math.min(9, v)))
-					game.fixed = game.puzzle.map(v => Boolean(v))
-					game.notesMask = loaded.notesMask.map(m => m & ALL_MASK)
-					game.notesMode = loaded.notesMode
-					game.difficulty = loaded.difficulty || 'Easy'
+					const game = new SudokuGame(loaded)
 					this.#clock.resetTo(loaded.elapsedSeconds)
 					return game
 				}
 			}
 			
-			// if generateNew is true OR load failed, start new game
-			const loaded = await this.#storage.startNew(this.#bootDifficulty)
-			const game = new SudokuGame({ 
-				puzzle: loaded.puzzle, 
-				solution: loaded.solution, 
-				difficulty: loaded.difficulty,
-				isCompleted: loaded.isCompleted
-			})
-			game.values = loaded.values.map(v => Math.max(0, Math.min(9, v)))
-			game.fixed = game.puzzle.map(v => Boolean(v))
-			game.notesMask = loaded.notesMask.map(m => m & ALL_MASK)
-			game.notesMode = loaded.notesMode
-			game.difficulty = loaded.difficulty
+			const loaded = isDaily ? await this.#storage.loadDaily(this.#bootDate) : await this.#storage.startNew(this.#bootDifficulty)
+			
+			if (!loaded && isDaily) {
+				window.location.href = '/'
+				throw new Error('Failed to load daily game')
+			}
+
+			const game = new SudokuGame(loaded)
 			this.#clock.resetTo(loaded.elapsedSeconds)
 			return game
 		}
 
 		#applyLoadedStateToUI() {
-			this.#difficultyEl.textContent = this.#game.difficulty
+			const type = this.#game.type === 'daily' ? 'Daily' : 'Normal'
+			let diffText = `${type} - ${this.#game.difficulty}`
+			if (this.#game.isReplay) diffText += ' (Non-scored)'
+			this.#difficultyEl.textContent = diffText
 			this.#notesBtn.textContent = this.#game.notesMode ? 'Notes: On' : 'Notes: Off'
 			this.#timerEl.textContent = SudokuUI.formatTime(this.#clock.elapsedSeconds())
 		}
@@ -1076,26 +1022,32 @@ const SudokuApp = (() => {
 			}
 			if (this.#drawerReset instanceof HTMLButtonElement) {
 				this.#drawerReset.addEventListener('click', () => {
-					const ok = window.confirm('Reset this game?')
-					if (!ok) return
-					this.#closeDrawer()
-					this.#resetGameToPuzzle()
+					this.#showConfirmation('Reset Game', 'Are you sure you want to reset this game?', () => {
+						this.#closeDrawer()
+						this.#resetGameToPuzzle()
+					})
 				})
 			}
 			if (this.#drawerNewGame instanceof HTMLButtonElement) {
 				this.#drawerNewGame.addEventListener('click', () => {
-					const ok = window.confirm('Start a new game?')
-					if (!ok) return
-					this.#closeDrawer()
-					this.#newGame(this.#bootDifficulty)
+					this.#showConfirmation('New Game', 'Start a new game? Current progress will be saved.', () => {
+						this.#closeDrawer()
+						
+						if (this.#gameName === 'daily') {
+							window.location.href = `/play?new=${this.#bootDifficulty}`
+							return
+						}
+
+						this.#newGame(this.#bootDifficulty)
+					})
 				})
 			}
 
 			if (this.#resetBtn instanceof HTMLButtonElement) {
 				this.#resetBtn.addEventListener('click', () => {
-					const ok = window.confirm('Reset this game?')
-					if (!ok) return
-					this.#resetGameToPuzzle()
+					this.#showConfirmation('Reset Game', 'Are you sure you want to reset this game?', () => {
+						this.#resetGameToPuzzle()
+					})
 				})
 			}
 
@@ -1118,30 +1070,31 @@ const SudokuApp = (() => {
 		}
 
 		#resetGameToPuzzle() {
+			this.#game.isReplay = true
 			this.#game.reset()
 			this.#completedUnits = new Set()
 			this.#solvedShown = false
 			this.#locked = false
-			this.#difficultyEl.textContent = this.#game.difficulty
-			this.#notesBtn.textContent = 'Notes: Off'
+			
+			this.#applyLoadedStateToUI()
+			
 			this.#clock.stop()
 			this.#clock.resetTo(0)
 			this.#render()
 			this.#updateInteractionState()
 			this.#clock.start()
-			this.#storage.reset()
+			this.#storage.reset(this.#game.id, {
+				puzzle: this.#game.puzzle,
+				solution: this.#game.solution,
+				difficulty: this.#game.difficulty
+			})
 			this.#isDirty = false
 		}
 
 		/** @param {Difficulty} difficulty */
 		async #newGame(difficulty) {
 			const loaded = await this.#storage.startNew(difficulty)
-			this.#game = new SudokuGame({ 
-				puzzle: loaded.puzzle, 
-				solution: loaded.solution, 
-				difficulty: loaded.difficulty,
-				isCompleted: loaded.isCompleted
-			})
+			this.#game = new SudokuGame(loaded)
 			this.#completedUnits = new Set()
 			this.#solvedShown = false
 			this.#locked = false
@@ -1193,8 +1146,8 @@ const SudokuApp = (() => {
 			if (!SudokuRules.isSolved(this.#game.values)) return
 
 			// verify with server
-			const isCompleted = await this.#storage.checkCompletion(this.#game.values, this.#clock.elapsedSeconds())
-			if (!isCompleted) return
+			const result = await this.#storage.checkCompletion(this.#game.id, this.#game.values, this.#clock.elapsedSeconds())
+			if (!result.completed) return
 
 			this.#solvedShown = true
 			this.#locked = true
@@ -1204,9 +1157,65 @@ const SudokuApp = (() => {
 			const all = Array.from({ length: CELL_COUNT }, (_, i) => i)
 			const durationMs = 850
 			this.#glowCellsFor(all, durationMs)
+			
 			window.setTimeout(() => {
-				window.alert('Completed')
+				this.#showVictoryModal(result)
 			}, durationMs + 50)
+		}
+
+		#showVictoryModal(result) {
+			const modal = document.getElementById('victory-modal')
+			const content = document.getElementById('victory-content')
+			const diffDisplay = document.getElementById('victory-difficulty-display')
+			const timeDisplay = document.getElementById('victory-time')
+			const scoreDisplay = document.getElementById('victory-score')
+			const achContainer = document.getElementById('achievements-container')
+			const achList = document.getElementById('achievements-list')
+
+			const type = this.#game.type === 'daily' ? 'Daily' : 'Normal'
+			diffDisplay.textContent = `${type} - ${this.#game.difficulty}` + (result.is_replay ? ' (Non-scored)' : '')
+			timeDisplay.textContent = this.#formatTime(this.#clock.elapsedSeconds())
+			scoreDisplay.textContent = result.score.toLocaleString()
+
+			if (result.unlocked_achievements && result.unlocked_achievements.length > 0) {
+				achList.innerHTML = ''
+				result.unlocked_achievements.forEach(ach => {
+					const div = document.createElement('div')
+					div.className = 'flex items-center gap-3 bg-amber-50 p-3 rounded-xl border border-amber-100'
+					div.innerHTML = `
+						<div class="text-2xl">🏆</div>
+						<div class="text-left">
+							<p class="text-sm font-bold text-amber-900">${ach.name}</p>
+							<p class="text-xs text-amber-700">${ach.description}</p>
+						</div>
+					`
+					achList.appendChild(div)
+				})
+				achContainer.classList.remove('hidden')
+			} else {
+				achContainer.classList.add('hidden')
+			}
+
+			modal.classList.remove('hidden')
+			window.setTimeout(() => {
+				content.classList.remove('scale-95', 'opacity-0')
+				content.classList.add('scale-100', 'opacity-100')
+			}, 10)
+
+			document.getElementById('victory-viewgame').onclick = () => {
+				modal.classList.add('hidden')
+				content.classList.add('scale-95', 'opacity-0')
+				content.classList.remove('scale-100', 'opacity-100')
+			}
+			document.getElementById('victory-goback').onclick = () => {
+				window.location.href = '/'
+			}
+		}
+
+		#formatTime(seconds) {
+			const m = Math.floor(seconds / 60)
+			const s = seconds % 60
+			return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
 		}
 
 		#selectCell(idx) {
@@ -1220,6 +1229,7 @@ const SudokuApp = (() => {
 		}
 
 		#saveNow() {
+			if (this.#game.id === 0) return
 			this.#storage.save({ game: this.#game, elapsedSeconds: this.#clock.elapsedSeconds() })
 			this.#isDirty = false
 		}
@@ -1317,12 +1327,13 @@ const SudokuApp = (() => {
 			gameName = 'normal'
 		}
 		const generateNew = Boolean(options?.generateNew)
+		const date = options?.date
 		try {
 			let gameUI = null
 			const appShell = new AppShell(SETTINGS_KEY, settings => {
 				if (gameUI) gameUI.updateSettings(settings)
 			})
-			gameUI = new SudokuUI({ difficulty, gameName, settings: appShell.settings, generateNew })
+			gameUI = new SudokuUI({ difficulty, gameName, settings: appShell.settings, generateNew, date })
 		} catch (e) {
 			const msg = e instanceof Error ? e.message : String(e)
 			console.error('Sudoku init failed:', msg)
@@ -1333,7 +1344,10 @@ const SudokuApp = (() => {
 })()
 
 document.addEventListener('DOMContentLoaded', () => {
-	const generateNewQuery = new URLSearchParams(window.location.search).get('new')
+	const urlParams = new URLSearchParams(window.location.search)
+	const generateNewQuery = urlParams.get('new')
+	const isDaily = urlParams.get('type') === 'daily'
+	const dateQuery = urlParams.get('date')
 	console.log("generateNewQuery:", generateNewQuery)
 	
 	if (window.location.search) {
@@ -1345,12 +1359,19 @@ document.addEventListener('DOMContentLoaded', () => {
 	let gameDifficulty = 'Easy'
 	let generateNew = false
 
-	const difficultyMap = {
-		Easy: 'Easy',
-		Medium: 'Medium',
-		Hard: 'Hard',
-		Expert: 'Extreme',
-		Extreme: 'Extreme',
+	let difficultyMap = {}
+	if (window.SudokuConfig && window.SudokuConfig.difficulties) {
+		for (const key of Object.keys(window.SudokuConfig.difficulties)) {
+			difficultyMap[key] = key
+		}
+	} else {
+		difficultyMap = {
+			Easy: 'Easy',
+			Medium: 'Medium',
+			Hard: 'Hard',
+			Extreme: 'Extreme',
+			Test: 'Test',
+		}
 	}
 
 	if (generateNewQuery && difficultyMap[generateNewQuery]) {
@@ -1362,6 +1383,6 @@ document.addEventListener('DOMContentLoaded', () => {
 	console.log("game difficulty:", gameDifficulty)
 
 	SudokuApp.boot(
-		{ difficulty: gameDifficulty, gameName: 'normal', generateNew: generateNew }
+		{ difficulty: gameDifficulty, gameName: isDaily ? 'daily' : 'normal', generateNew: generateNew, date: dateQuery }
 	)
 })
